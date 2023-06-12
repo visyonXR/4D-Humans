@@ -5,6 +5,10 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
+import time
+import psutil
+import subprocess
+import re
 
 from hmr2.configs import get_config
 from hmr2.models import HMR2
@@ -50,7 +54,21 @@ os.makedirs(args.out_folder, exist_ok=True)
 jpg_files = Path(args.img_folder).glob('*.jpg')
 png_files = Path(args.img_folder).glob('*.png')
 all_files = list(jpg_files) + list(png_files)
+
+def get_gpu_memory_usage():
+    gpu_info = subprocess.check_output(['nvidia-smi']).decode('utf-8')
+    pattern = r"(\d+)\s*MiB\s*/\s*(\d+)\s*MiB\s*.*\s*(\d+)%\s*"
+    match = re.search(pattern, gpu_info)
+    if match:
+        used_memory = int(match.group(1))
+        total_memory = int(match.group(2))
+        gpu_percent = round(((used_memory / total_memory) * 100), 1)
+        return gpu_percent
+    else:
+        return 0
+
 for img_path in all_files:
+    start_time = time.time()
     img_cv2 = cv2.imread(str(img_path))
 
     # Detect humans in image
@@ -63,6 +81,10 @@ for img_path in all_files:
     # Run HMR2.0 on all detected humans
     dataset = ViTDetDataset(model_cfg, img_cv2, boxes)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=False, num_workers=0)
+
+    cpu_percent1 = psutil.cpu_percent()
+    ram_percent1 = psutil.virtual_memory().percent
+    gpu_percent1 = get_gpu_memory_usage()
 
     all_verts = []
     all_cam_t = []
@@ -102,6 +124,9 @@ for img_path in all_files:
             all_verts.append(verts)
             all_cam_t.append(cam_t)
 
+    cpu_percent2 = psutil.cpu_percent()
+    ram_percent2 = psutil.virtual_memory().percent
+    gpu_percent2 = get_gpu_memory_usage()
 
     if len(all_verts) > 0:
         misc_args = dict(
@@ -120,3 +145,14 @@ for img_path in all_files:
 
         out_pil_img.save(os.path.join(args.out_folder, f'{img_fn}_final.png'))
 
+    end_time = time.time()
+    processing_time = end_time - start_time
+
+    cpu_percent3 = psutil.cpu_percent()
+    ram_percent3 = psutil.virtual_memory().percent
+    gpu_percent3 = get_gpu_memory_usage()
+
+    print(f"Tiempo de procesamiento de la imagen: {processing_time:.2f} segundos")
+    print(f"Estado del sistema - Uso de CPU: {cpu_percent1}% {cpu_percent2}% {cpu_percent3}%")
+    print(f"Estado del sistema - Uso de GPU: {gpu_percent1}% {gpu_percent2}% {gpu_percent3}%")
+    print(f"Estado del sistema - Uso de RAM: {ram_percent1}% {ram_percent2}% {ram_percent3}%")
