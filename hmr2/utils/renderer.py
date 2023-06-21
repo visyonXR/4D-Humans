@@ -1,6 +1,6 @@
 import os
-# if 'PYOPENGL_PLATFORM' not in os.environ:
-#     os.environ['PYOPENGL_PLATFORM'] = 'egl'
+if 'PYOPENGL_PLATFORM' not in os.environ:
+    os.environ['PYOPENGL_PLATFORM'] = 'egl'
 import torch
 import numpy as np
 import pyrender
@@ -145,9 +145,6 @@ class Renderer:
         self.cfg = cfg
         self.focal_length = cfg.EXTRA.FOCAL_LENGTH
         self.img_res = cfg.MODEL.IMAGE_SIZE
-        # self.renderer = pyrender.OffscreenRenderer(viewport_width=self.img_res,
-        #                                viewport_height=self.img_res,
-        #                                point_size=1.0)
 
         self.camera_center = [self.img_res // 2, self.img_res // 2]
         self.faces = faces
@@ -208,7 +205,7 @@ class Renderer:
         camera_pose[:3, 3] = camera_translation
         camera_center = [image.shape[1] / 2., image.shape[0] / 2.]
         camera = pyrender.IntrinsicsCamera(fx=self.focal_length, fy=self.focal_length,
-                                           cx=camera_center[0], cy=camera_center[1])
+                                           cx=camera_center[0], cy=camera_center[1], zfar=1e12)
         scene.add(camera, pose=camera_pose)
 
 
@@ -292,7 +289,7 @@ class Renderer:
         # camera_pose[:3, 3] = camera_translation
         camera_center = [render_res[0] / 2., render_res[1] / 2.]
         camera = pyrender.IntrinsicsCamera(fx=self.focal_length, fy=self.focal_length,
-                                           cx=camera_center[0], cy=camera_center[1])
+                                           cx=camera_center[0], cy=camera_center[1], zfar=1e12)
 
         # Create camera node and add it to pyRender scene
         camera_node = pyrender.Node(camera=camera, matrix=camera_pose)
@@ -319,6 +316,7 @@ class Renderer:
             mesh_base_color=(1.0, 1.0, 0.9),
             scene_bg_color=(0,0,0),
             render_res=[256, 256],
+            focal_length=None,
         ):
 
         renderer = pyrender.OffscreenRenderer(viewport_width=render_res[0],
@@ -339,8 +337,9 @@ class Renderer:
         camera_pose = np.eye(4)
         # camera_pose[:3, 3] = camera_translation
         camera_center = [render_res[0] / 2., render_res[1] / 2.]
-        camera = pyrender.IntrinsicsCamera(fx=self.focal_length, fy=self.focal_length,
-                                           cx=camera_center[0], cy=camera_center[1])
+        focal_length = focal_length if focal_length is not None else self.focal_length
+        camera = pyrender.IntrinsicsCamera(fx=focal_length, fy=focal_length,
+                                           cx=camera_center[0], cy=camera_center[1], zfar=1e12)
 
         # Create camera node and add it to pyRender scene
         camera_node = pyrender.Node(camera=camera, matrix=camera_pose)
