@@ -4,9 +4,7 @@ import argparse
 import os
 import cv2
 import numpy as np
-from smplx import SMPL
-from smplx.body_models import create
-import trimesh
+import pickle
 
 from hmr2.configs import CACHE_DIR_4DHUMANS
 from hmr2.models import HMR2, download_models, load_hmr2, DEFAULT_CHECKPOINT
@@ -129,21 +127,25 @@ def main():
                 all_models.append(model_data)
                 print(all_models)
 
+                # smpl -> pkl
+                rots = np.array(all_verts)  # (N, ...)
+                scaling = None  # No info
+                trans = np.array(all_cam_t)  # (N, ...)
+
+                poses = {
+                    "smpl_poses": rots,
+                    "smpl_scaling": scaling,
+                    "smpl_trans": trans
+                }
+
+                with open(os.path.join(args.out_folder, f'{img_fn}_{person_id}.pkl'), 'wb') as f:
+                    pickle.dump(poses, f)
+
                 # Save all meshes to disk
                 if args.save_mesh:
                     camera_translation = cam_t.copy()
                     tmesh = renderer.vertices_to_trimesh(verts, camera_translation, LIGHT_BLUE)
                     tmesh.export(os.path.join(args.out_folder, f'{img_fn}_{person_id}.obj'))
-
-                    # smpl -> pkl
-                    smpl_model = SMPL('data/smpl/models/smplx/SMPLX_NEUTRAL.pkl', batch_size=1).to(device)
-                    mesh = trimesh.load_mesh(os.path.join(args.out_folder, f'{img_fn}_{person_id}.obj'))
-                    vertices = torch.tensor(mesh.vertices).unsqueeze(0).to(device)
-                    faces = torch.tensor(mesh.faces.astype(int)).unsqueeze(0).to(device)
-                    body_pose = torch.tensor([0.0] * 72, dtype=torch.float32).unsqueeze(0).to(device)
-                    global_orient = torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32).unsqueeze(0).to(device)
-                    output = smpl_model(body_pose=body_pose, global_orient=global_orient, vertices=vertices, faces=faces)
-                    torch.save(output, os.path.join(args.out_folder, f'{img_fn}_{person_id}.pkl'))
 
         # Render front view
         if args.full_frame and len(all_verts) > 0:
@@ -158,13 +160,14 @@ def main():
             input_img = img_cv2.astype(np.float32)[:,:,::-1]/255.0
             input_img = np.concatenate([input_img, np.ones_like(input_img[:,:,:1])], axis=2) # Add alpha channel
             input_img_overlay = input_img[:,:,:3] * (1-cam_view[:,:,3:]) + cam_view[:,:,:3] * cam_view[:,:,3:]
+
             cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_all.png'), 255*input_img_overlay[:, :, ::-1])
 
         # smpl -> npz
         if len(all_models) > 0:
             for i, model_data in enumerate(all_models):
                 print(all_models)
-                np.savez(os.path.join(args.out_folder, f'model_{i}.npz'), **model_data)
+                np.savez(os.path.join(args.out_folder, f'{img_fn}_{person_id}.npz'), **model_data)
 
 if __name__ == '__main__':
     main()
