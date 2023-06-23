@@ -69,7 +69,6 @@ def main():
 
         all_verts = []
         all_cam_t = []
-        all_models = []
 
         for batch in dataloader:
             batch = recursive_to(batch, device)
@@ -119,14 +118,6 @@ def main():
                 all_verts.append(verts)
                 all_cam_t.append(cam_t)
 
-                # smpl -> npz
-                model_data = {
-                    'poses': out['pred_vertices'][n].detach().cpu().numpy(),
-                    'trans': out['pred_cam_t'][n].detach().cpu().numpy()
-                }
-                all_models.append(model_data)
-                print(all_models)
-
                 # smpl -> pkl
                 rots = np.array(all_verts)  # (N, ...)
                 scaling = None  # No info
@@ -162,12 +153,6 @@ def main():
             input_img_overlay = input_img[:,:,:3] * (1-cam_view[:,:,3:]) + cam_view[:,:,:3] * cam_view[:,:,3:]
 
             cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_all.png'), 255*input_img_overlay[:, :, ::-1])
-
-        # smpl -> npz
-        if len(all_models) > 0:
-            for i, model_data in enumerate(all_models):
-                print(all_models)
-                np.savez(os.path.join(args.out_folder, f'{img_fn}_{person_id}.npz'), **model_data)
 
 if __name__ == '__main__':
     main()
