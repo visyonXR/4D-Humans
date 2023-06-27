@@ -159,7 +159,7 @@ def smpl2bvh(model_path:str, poses:str, output:str, mirror:bool,
             "frametime": 1 / fps,
         }
 
-        output_mirror = output.split(".")[0] + "_mirror.bvh"
+        output_mirror = output + "_mirror.bvh"
         bvh.save(output_mirror, bvh_data)
 
 
@@ -202,7 +202,7 @@ def main():
     os.makedirs(args.out_folder, exist_ok=True)
 
     # Iterate over all images in folder
-    for img_path in Path(args.img_folder).glob('*.jpg'):
+    for img_path in Path(args.img_folder).glob('*.png'):
         img_cv2 = cv2.imread(str(img_path))
 
         # Detect humans in image
@@ -300,7 +300,7 @@ def main():
                     pickle.dump(poses, f)
 
                 argsSMPL2BVH = {
-                    "model_path" : "data/smpl/",
+                    "model_path" : "data/",
                     "model_type" : "smpl",
                     "gender" : "MALE",
                     "num_betas" : 10,
