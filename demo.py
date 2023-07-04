@@ -236,6 +236,7 @@ def main():
             batch = recursive_to(batch, device)
             with torch.no_grad():
                 out = model(batch)
+                print(out)
 
             pred_cam = out['pred_cam']
             box_center = batch["box_center"].float()
@@ -299,14 +300,19 @@ def main():
                 all_cam_t.append(cam_t)
 
                 # smpl -> pkl
-                smpl_poses = np.array(all_verts)  # (N, ...)
+                #smpl_poses = np.array(all_verts)  # (N, ...)
+                #smpl_trans = np.array(all_cam_t)  # (N, ...)
+
+                body_pose_p = out['pred_smpl_params']['body_pose'].detach().cpu().numpy()
+                global_orient_p = out['pred_smpl_params']['global_orient'].detach().cpu().numpy()
+                smpl_poses_p = np.concatenate([global_orient_p, body_pose_p], axis=1)
+                smpl_trans_p = pred_cam_t_full
                 smpl_scaling = scaled_focal_length.detach().cpu().numpy()  # No info
-                smpl_trans = np.array(all_cam_t)  # (N, ...)
 
                 poses = {
-                    "smpl_poses": smpl_poses,
+                    "smpl_poses": smpl_poses_p,
                     "smpl_scaling": smpl_scaling,
-                    "smpl_trans": smpl_trans
+                    "smpl_trans": smpl_trans_p
                 }
 
                 with open(os.path.join(args.out_folder, f'{img_fn}_{person_id}.pkl'), 'wb') as f:
