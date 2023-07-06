@@ -9,6 +9,7 @@ import pickle
 import smplx
 
 from utils import bvh, quat
+from io import StringIO
 
 from hmr2.configs import CACHE_DIR_4DHUMANS
 from hmr2.models import HMR2, download_models, load_hmr2, DEFAULT_CHECKPOINT
@@ -17,6 +18,12 @@ from hmr2.datasets.vitdet_dataset import ViTDetDataset, DEFAULT_MEAN, DEFAULT_ST
 from hmr2.utils.renderer import Renderer, cam_crop_to_full
 
 LIGHT_BLUE=(0.65098039,  0.74117647,  0.85882353)
+
+channelmap_inv = {
+    'x': 'Xrotation',
+    'y': 'Yrotation',
+    'z': 'Zrotation',
+}
 
 def mirror_rot_trans(lrot, trans, names, parents):
     joints_mirror = np.array([(
@@ -139,7 +146,7 @@ def smpl2bvh(model_path:str, poses:str, output:str, mirror:bool,
     if not output.endswith(".bvh"):
         output = output + ".bvh"
 
-    bvh.save(output, bvh_data)
+    #bvh.save(output, bvh_data)
 
     if mirror:
         rots_mirror, trans_mirror = mirror_rot_trans(
@@ -149,7 +156,7 @@ def smpl2bvh(model_path:str, poses:str, output:str, mirror:bool,
         rotations_mirror = np.degrees(
             quat.to_euler(rots_mirror, order=order))
 
-        bvh_data ={
+        bvh_data_mirror ={
             "rotations": rotations_mirror,
             "positions": positions_mirror,
             "offsets": offsets,
@@ -160,7 +167,11 @@ def smpl2bvh(model_path:str, poses:str, output:str, mirror:bool,
         }
 
         output_mirror = output + "_mirror.bvh"
-        bvh.save(output_mirror, bvh_data)
+        return (output, bvh_data, output_mirror, bvh_data_mirror)
+        #bvh.save(output_mirror, bvh_data_mirror)
+    else:
+        return (output, bvh_data)
+
 
 
 def main():
@@ -201,8 +212,10 @@ def main():
     # Make output directory if it does not exist
     os.makedirs(args.out_folder, exist_ok=True)
 
+    all_pkl = []
+
     # Iterate over all images in folder
-    for img_path in Path(args.img_folder).glob('*.png'):
+    for img_path in sorted(Path(args.img_folder).glob('*.png')):
         img_cv2 = cv2.imread(str(img_path))
 
         # Detect humans in image
@@ -223,6 +236,7 @@ def main():
             batch = recursive_to(batch, device)
             with torch.no_grad():
                 out = model(batch)
+                print(out)
 
             pred_cam = out['pred_cam']
             box_center = batch["box_center"].float()
@@ -286,44 +300,25 @@ def main():
                 all_cam_t.append(cam_t)
 
                 # smpl -> pkl
-                smpl_poses = np.array(all_verts)  # (N, ...)
+                #smpl_poses = np.array(all_verts)  # (N, ...)
+                #smpl_trans = np.array(all_cam_t)  # (N, ...)
+
+                body_pose_p = out['pred_smpl_params']['body_pose'].detach().cpu().numpy()
+                global_orient_p = out['pred_smpl_params']['global_orient'].detach().cpu().numpy()
+                smpl_poses_p = np.concatenate([global_orient_p, body_pose_p], axis=1)
+                smpl_trans_p = pred_cam_t_full
                 smpl_scaling = scaled_focal_length.detach().cpu().numpy()  # No info
-                smpl_trans = np.array(all_cam_t)  # (N, ...)
 
                 poses = {
-                    "smpl_poses": smpl_poses,
+                    "smpl_poses": smpl_poses_p,
                     "smpl_scaling": smpl_scaling,
-                    "smpl_trans": smpl_trans
+                    "smpl_trans": smpl_trans_p
                 }
 
                 with open(os.path.join(args.out_folder, f'{img_fn}_{person_id}.pkl'), 'wb') as f:
                     pickle.dump(poses, f)
-
-                argsSMPL2BVH = {
-                    "model_path" : "data/",
-                    "model_type" : "smpl",
-                    "gender" : "MALE",
-                    "num_betas" : 10,
-                    "poses" : os.path.join(args.out_folder, f'{img_fn}_{person_id}.pkl'),
-                    "fps" : 60,
-                    "output" : os.path.join(args.out_folder, f'{img_fn}_{person_id}.bvh'),
-                    "mirror" : True
-                }
-
-                print(argsSMPL2BVH)
-
-                smpl2bvh(
-                    model_path=argsSMPL2BVH["model_path"],
-                    model_type=argsSMPL2BVH["model_type"],
-                    mirror=argsSMPL2BVH["mirror"],
-                    gender=argsSMPL2BVH["gender"],
-                    poses=argsSMPL2BVH["poses"],
-                    num_betas=argsSMPL2BVH["num_betas"],
-                    fps=argsSMPL2BVH["fps"],
-                    output=argsSMPL2BVH["output"]
-                )
-
-                print("finished!")
+                    pkl_name = f'{img_fn}_{person_id}.pkl'
+                    all_pkl.append(pkl_name)
 
                 # Save all meshes to disk
                 if args.save_mesh:
@@ -347,5 +342,79 @@ def main():
 
             cv2.imwrite(os.path.join(args.out_folder, f'{img_fn}_all.png'), 255*input_img_overlay[:, :, ::-1])
 
+    for k, pkl_file in enumerate(all_pkl):
+        file_name = os.path.splitext(pkl_file)[0]
+
+        argsSMPL2BVH = {
+            "model_path" : "data/",
+            "model_type" : "smpl",
+            "gender" : "MALE",
+            "num_betas" : 10,
+            "poses" : os.path.join(args.out_folder, str(file_name)+'.pkl'),
+            "fps" : 60,
+            "output" : os.path.join(args.out_folder, str(file_name)+'.bvh'),
+            "mirror" : True
+        }
+
+        output_final = os.path.join(args.out_folder, str('final_result')+'.bvh')
+
+        output, bvh_data, output_mirror, bvh_data_mirror = smpl2bvh(
+            model_path=argsSMPL2BVH["model_path"],
+            model_type=argsSMPL2BVH["model_type"],
+            mirror=argsSMPL2BVH["mirror"],
+            gender=argsSMPL2BVH["gender"],
+            poses=argsSMPL2BVH["poses"],
+            num_betas=argsSMPL2BVH["num_betas"],
+            fps=argsSMPL2BVH["fps"],
+            output=argsSMPL2BVH["output"]
+        )
+
+        #print(output)
+        #print(bvh_data)        
+        #print(output_mirror)
+        #print(bvh_data_mirror)
+
+        save_positions = False
+        frametime = bvh_data['frametime']
+        rots, poss = bvh_data['rotations'], bvh_data['positions']
+
+        if k == 0:
+            order = bvh_data['order']   
+            with open(output_final, "w") as f:    
+                t = ""
+                f.write("%sHIERARCHY\n" % t)
+                f.write("%sROOT %s\n" % (t, bvh_data['names'][0]))
+                f.write("%s{\n" % t)
+                t += '\t'
+
+                f.write("%sOFFSET %f %f %f\n" % (t, bvh_data['offsets'][0,0], bvh_data['offsets'][0,1], bvh_data['offsets'][0,2]) )
+                f.write("%sCHANNELS 6 Xposition Yposition Zposition %s %s %s \n" % 
+                    (t, channelmap_inv[order[0]], channelmap_inv[order[1]], channelmap_inv[order[2]]))
+
+                save_order = [0]
+                    
+                for i in range(len(bvh_data['parents'])):
+                    if bvh_data['parents'][i] == 0:
+                        t = bvh.save_joint(f, bvh_data, t, i, save_order, order=order, save_positions=save_positions)
+            
+                t = t[:-1]
+                f.write("%s}\n" % t)
+                f.write("MOTION\n")
+                f.write("Frames: %i\n" % len(all_pkl));
+                f.write("Frame Time: %f\n" % frametime);
+        
+        with open(output_final, "a") as f:
+            for i in range(rots.shape[0]):
+                for j in save_order:
+                    if save_positions or j == 0:
+                        f.write("%f %f %f %f %f %f " % (
+                            poss[i,j,0], poss[i,j,1], poss[i,j,2], 
+                            rots[i,j,0], rots[i,j,1], rots[i,j,2]))
+                    else:
+                        f.write("%f %f %f " % (
+                            rots[i,j,0], rots[i,j,1], rots[i,j,2]))
+                f.write("\n")
+    print("finished!")
+        
 if __name__ == '__main__':
     main()
